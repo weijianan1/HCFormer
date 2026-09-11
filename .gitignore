@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments and editors
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store
+
+# Datasets and generated outputs
+data/
+output/
+outputs/
+work_dirs/
+logs/
+uploads/
+images/cluster_vis/
+
+# Model artifacts
+pretrained/
+checkpoints/
+*.pth
+*.pth.tar
+*.pt
+*.ckpt
+*.onnx
+
+# Evaluation artifacts
+*.pkl
+results/
