@@ -2,14 +2,6 @@
 
 Official implementation of **Hyperbolic Hierarchical Clustering for Visual Representation Learning**.
 
-HCFormer is a hierarchical vision backbone built around **ClusterMixer**, an interpretable token mixer that performs feature aggregation and propagation through soft clustering. It combines:
-
-- patch-level clustering in Euclidean space for fine-grained local structure;
-- window-level clustering in Lorentz hyperbolic space for global hierarchical relations;
-- relative positional bias and hierarchical feature maps for classification and dense prediction.
-
-The paper evaluates HCFormer on ImageNet-1K classification, ADE20K semantic segmentation, and COCO object detection and instance segmentation.
-
 ## Paper results
 
 ### ImageNet-1K classification
@@ -242,4 +234,4 @@ This implementation builds on [Context Cluster](https://github.com/ma-xu/Context
 
 ## License
 
-See [LICENSE](LICENSE) for the repository license. Third-party components remain subject to their respective licenses.
+This project is released under the [Apache License 2.0](LICENSE).
