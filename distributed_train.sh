@@ -20,4 +20,4 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python3 -m torch.distributed.launch  \
     --output $OUTPUT_DIR \
     --amp
 
-# To resume: RESUME=output/hcformer_tiny/last.pth.tar
+# To resume: add --resume output/hcformer_nano/last.pth.tar

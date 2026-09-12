@@ -6,7 +6,6 @@ import time
 
 import mmcv
 import torch
-# from mmcv.runner import init_dist
 from mmcv.utils import Config, DictAction, get_git_hash
 from mmcv.runner import get_dist_info, init_dist
 

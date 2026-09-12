@@ -8,7 +8,6 @@ HCFormer implementation
 """
 import os
 import copy
-import math
 
 import torch
 import torch.nn as nn
@@ -28,7 +27,6 @@ try:
 
     has_mmseg = True
 except ImportError:
-    print("If for semantic segmentation, please install mmsegmentation first")
     has_mmseg = False
 
 try:
@@ -38,7 +36,6 @@ try:
 
     has_mmdet = True
 except ImportError:
-    print("If for detection, please install mmdetection first")
     has_mmdet = False
 
 
@@ -61,10 +58,7 @@ def _cfg(url='', **kwargs):
     }
 
 
-default_cfgs = {
-    'model_small': _cfg(crop_pct=0.9),
-    'model_medium': _cfg(crop_pct=0.95),
-}
+default_cfg = _cfg(crop_pct=0.9)
 
 class PointRecuder(nn.Module):
     """
@@ -115,7 +109,6 @@ def pairwise_cos_sim(x1: torch.Tensor, x2: torch.Tensor):
 
 def clip(input_vector, r):
     input_norm = torch.norm(input_vector, dim = -1)
-    # clip_value = float(r)/input_norm
     min_norm = torch.clamp(float(r)/input_norm, max = 1)
     return min_norm[..., None] * input_vector
 
@@ -142,16 +135,10 @@ class Cluster(nn.Module):
         self.global_compute = global_compute
         if self.global_compute:
             self.proj = nn.Conv2d(heads * head_dim * 2, out_dim, kernel_size=1)  # for projecting channel number
-            # self.proj = nn.Conv2d(heads * head_dim, out_dim, kernel_size=1)  # for projecting channel number
         else:
             self.proj = nn.Conv2d(heads * head_dim, out_dim, kernel_size=1)
 
         self.v = nn.Conv2d(dim, heads * head_dim, kernel_size=1)  # for value
-        self.windows_w = windows_w
-        self.windows_h = windows_h
-        self.proposal_w = proposal_w
-        self.proposal_h = proposal_h
-
         self.centers_fold = nn.AdaptiveAvgPool2d((1, 1))
         self.centers_window = nn.AdaptiveAvgPool2d((windows_w, windows_h))
 
@@ -160,8 +147,6 @@ class Cluster(nn.Module):
 
         self.centers_proposal = nn.AdaptiveAvgPool2d((proposal_w, proposal_h))
         self.relative_position_bias = nn.Parameter(torch.zeros(heads, proposal_w*proposal_h, feats_size, feats_size))
-        # self.relative_position_bias = nn.Parameter(torch.zeros(heads, proposal_w*proposal_h, 1, 1))
-        # self._relative_position_bias = nn.Parameter(torch.zeros(heads, proposal_w*proposal_h, 1, 1))
 
         if self.global_compute:
             if curvature <= 0:
@@ -170,15 +155,11 @@ class Cluster(nn.Module):
             self.relative_position_bias2 = nn.Parameter(
                 torch.zeros(heads, windows_w * windows_h, fold_w, fold_h)
             )
-            # self.relative_position_bias2 = nn.Parameter(torch.zeros(1))
             self.curvature = float(curvature)
             # geoopt parameterizes the Lorentz manifold by k = 1 / kappa,
             # whose sectional curvature is -1 / k = -kappa.
             self.manifold = geoopt.Lorentz(k=1.0 / self.curvature, learnable=False)
         self.sim_alpha = nn.Parameter(torch.ones(1))
-
-        self.region_w = feats_size // fold_w
-        self.region_h = feats_size // fold_h
 
     def forward(self, x):  # [b,c,w,h]
         w, h = x.shape[-2], x.shape[-1]
@@ -193,27 +174,23 @@ class Cluster(nn.Module):
         if self.global_compute:
             out_global = self.aggregate_distribute_global(value, x)
             out = torch.cat([out, out_global], dim=1)
-            # out = (out + out_global) / 2
 
         out = out[:, :, pad_w//2:-(pad_w - pad_w//2), pad_h//2:-(pad_h - pad_h//2)]
         return self.proj(out)
 
     def window_partition(self, x: torch.Tensor) -> torch.Tensor:
-        B, C, H, W = x.shape
         windows = rearrange(x, "b c (f1 w) (f2 h) -> (b f1 f2) c w h", f1=self.fold_w,
                         f2=self.fold_h)  # [bs*blocks,c,ks[0],ks[1]]
 
         return windows
 
     def window_reverse(self, windows: torch.Tensor) -> torch.Tensor:
-        b, c, Wh, Ww = windows.shape
         x = rearrange(windows, "(b f1 f2) c w h -> b c (f1 w) (f2 h)", f1=self.fold_w, f2=self.fold_h)
         return x
 
     def aggregate_distribute_global(self, value, x):
         b, _, w, h = x.shape
 
-        # relative_position_bias = self.relative_position_bias1.unsqueeze(0).repeat(x.shape[0], 1, 1, 1, 1)
         relative_position_bias_ = self.relative_position_bias2.unsqueeze(0).repeat(x.shape[0], 1, 1, 1, 1)
         x = rearrange(x, "b (e c) w h -> (b e) c w h", e=self.heads)
         value = rearrange(value, "b (e c) w h -> (b e) c w h", e=self.heads)
@@ -224,7 +201,7 @@ class Cluster(nn.Module):
 
         x = self.window_partition(x)
         value = self.window_partition(value)
-        bef, c, ww, hh = x.shape
+        _, c, ww, hh = x.shape
 
         windows = self.centers_fold(x)
         windows = self.window_reverse(windows)
@@ -243,8 +220,6 @@ class Cluster(nn.Module):
         dist = -self.manifold.dist(centers.unsqueeze(2), windows.unsqueeze(1), dim=-1) # [B,M,N]
 
         sim_h = F.softmax(relative_position_bias_ + self.sim_alpha2 * dist, dim=1)
-        # sim_h = F.softmax(self.relative_position_bias2 + self.sim_alpha2 * dist, dim=1)
-        # print(sim_h.shape)
 
         value_windows = value_windows.reshape(be, c, -1)  # 256, 24, 256 (8*8*4: fw*fh*head_dim)
         value_centers = value_centers.reshape(be, c, -1)  # 256, 24, 16 (2*2*4: pw*ph*head_dim)
@@ -264,8 +239,6 @@ class Cluster(nn.Module):
         return out_h
 
     def aggregate_distribute(self, value, x):
-        # relative_position_bias = self._relative_position_bias.unsqueeze(0).repeat(x.shape[0], 1, 1, x.shape[-2], x.shape[-1])
-        # relative_position_bias = self.relative_position_bias.unsqueeze(0).repeat(x.shape[0], 1, 1, 1, 1)
         relative_position_bias = F.interpolate(
             self.relative_position_bias,
             size=(x.shape[-2], x.shape[-1]),
@@ -280,7 +253,7 @@ class Cluster(nn.Module):
         
         if self.fold_w > 1 and self.fold_h > 1:
             # split the big feature maps to small local regions to reduce computations.
-            b0, c0, w0, h0 = x.shape
+            _, _, w0, h0 = x.shape
             assert w0 % self.fold_w == 0 and h0 % self.fold_h == 0, \
                 f"Ensure the feature map size ({w0}*{h0}) can be divided by fold {self.fold_w}*{self.fold_h}"
             x = rearrange(x, "b c (f1 w) (f2 h) -> (b f1 f2) c w h", f1=self.fold_w,
@@ -474,10 +447,6 @@ class HCFormer(nn.Module):
             self.num_classes = num_classes
         self.fork_feat = fork_feat
 
-        # self.patch_embed = PointRecuder(
-        #     patch_size=in_patch_size, stride=in_stride, padding=in_pad,
-        #     in_chans=5, embed_dim=embed_dims[0])
-
         self.patch_embed = PointRecuder(
             patch_size=in_patch_size, stride=in_stride, padding=in_pad,
             in_chans=3, embed_dim=embed_dims[0])
@@ -533,8 +502,6 @@ class HCFormer(nn.Module):
             self.head = nn.Linear(
                 embed_dims[-1], num_classes) if num_classes > 0 \
                 else nn.Identity()
-            # self.mapper = HyperMapper(c=1.0)
-            # self.conv_seg = HyperMLR(embed_dims[-1], num_classes, c=1.0)
 
         self.apply(self.cls_init_weights)
 
@@ -579,29 +546,12 @@ class HCFormer(nn.Module):
             else:
                 _state_dict = ckpt
 
-            state_dict = _state_dict
-            missing_keys, unexpected_keys = \
-                self.load_state_dict(state_dict, False)
-
-            # show for debug
-            # print('missing_keys: ', missing_keys)
-            # print('unexpected_keys: ', unexpected_keys)
+            self.load_state_dict(_state_dict, False)
 
     def get_classifier(self):
         return self.head
 
     def forward_embeddings(self, x):
-        # _, c, img_w, img_h = x.shape
-        # # print(f"det img size is {img_w} * {img_h}")
-        # # register positional information buffer.
-        # range_w = torch.arange(0, img_w, step=1) / (img_w - 1.0)
-        # range_h = torch.arange(0, img_h, step=1) / (img_h - 1.0)
-        # fea_pos = torch.stack(torch.meshgrid(range_w, range_h, indexing='ij'), dim=-1).float()
-        # fea_pos = fea_pos.to(x.device)
-        # fea_pos = fea_pos - 0.5
-        # pos = fea_pos.permute(2, 0, 1).unsqueeze(dim=0).expand(x.shape[0], -1, -1, -1)
-        # x = self.patch_embed(torch.cat([x, pos], dim=1))
-
         x = self.patch_embed(x)
         return x
 
@@ -634,7 +584,6 @@ class HCFormer(nn.Module):
 
 @register_model
 def hcformer_nano(pretrained=False, **kwargs):
-    # layers = [3, 4, 5, 2]
     layers = [2, 2, 6, 2]
     norm_layer = GroupNorm
     embed_dims = [32, 64, 196, 224]
@@ -651,7 +600,6 @@ def hcformer_nano(pretrained=False, **kwargs):
 
     heads = [4, 4, 8, 8]  # 2 4 8 16
     head_dim = [16, 16, 16, 16]  
-    hyperbolic = [True, True, True, True]
     global_compute = [True, True, True, False]
     down_patch_size = 3
     down_pad = 1
@@ -661,41 +609,29 @@ def hcformer_nano(pretrained=False, **kwargs):
         down_patch_size=down_patch_size, down_pad=down_pad,
         proposal_w=proposal_w, proposal_h=proposal_h, fold_w=fold_w, fold_h=fold_h,
         windows_w=windows_w, windows_h=windows_h, feats_size=feats_size,
-        heads=heads, head_dim=head_dim, hyperbolic=hyperbolic, 
+        heads=heads, head_dim=head_dim,
         global_compute=global_compute,
         **kwargs)
-    model.default_cfg = default_cfgs['model_small']
+    model.default_cfg = default_cfg
     return model
 
 @register_model
 def hcformer_tiny(pretrained=False, **kwargs):
-    # layers = [3, 4, 5, 2]
     layers = [2, 2, 6, 2]
     norm_layer = GroupNorm
     embed_dims = [32, 64, 196, 320]
     mlp_ratios = [8, 8, 4, 4]
     downsamples = [True, True, True, True]
-    # proposal_w = [2, 2, 2, 2]
-    # proposal_h = [2, 2, 2, 2]
-    # fold_w = [8, 4, 2, 1]
-    # fold_h = [8, 4, 2, 1]
-    # windows_w = [1, 1, 1, 1]
-    # windows_h = [1, 1, 1, 1]
-    
     proposal_w = [4, 2, 7, 4]
     proposal_h = [4, 2, 7, 4]
     fold_w = [7, 7, 1, 1]
     fold_h = [7, 7, 1, 1]
     windows_w = [4, 4, 1, 1]
     windows_h = [4, 4, 1, 1]
-    # windows_w = [5, 5, 1, 1]
-    # windows_h = [5, 5, 1, 1]
     feats_size = [56, 28, 14, 7]
 
     heads = [4, 4, 8, 8]  # 2 4 8 16
     head_dim = [24, 24, 24, 24]
-    # head_dim = [64, 64, 64, 64]
-    hyperbolic = [True, True, True, True]
     global_compute = [True, True, True, False]
     down_patch_size = 3
     down_pad = 1
@@ -705,10 +641,10 @@ def hcformer_tiny(pretrained=False, **kwargs):
         down_patch_size=down_patch_size, down_pad=down_pad,
         proposal_w=proposal_w, proposal_h=proposal_h, fold_w=fold_w, fold_h=fold_h,
         windows_w=windows_w, windows_h=windows_h, feats_size=feats_size,
-        heads=heads, head_dim=head_dim, hyperbolic=hyperbolic, 
+        heads=heads, head_dim=head_dim,
         global_compute=global_compute,
         **kwargs)
-    model.default_cfg = default_cfgs['model_small']
+    model.default_cfg = default_cfg
     return model
 
 @register_model
@@ -718,17 +654,10 @@ def hcformer_small(pretrained=False, **kwargs):
     embed_dims = [64, 128, 320, 512]
     mlp_ratios = [8, 8, 4, 4]
     downsamples = [True, True, True, True]
-    # proposal_w = [2, 2, 2, 2]
-    # proposal_h = [2, 2, 2, 2]
-    # fold_w = [8, 4, 2, 1]
-    # fold_h = [8, 4, 2, 1]
     heads = [4, 4, 8, 8]
     head_dim = [32, 32, 32, 32]
     down_patch_size = 3
     down_pad = 1
-    # windows_w = [4, 2, 1, 1]
-    # windows_h = [4, 2, 1, 1]
-    
     proposal_w = [4, 2, 7, 4]
     proposal_h = [4, 2, 7, 4]
     fold_w = [7, 7, 1, 1]
@@ -737,7 +666,6 @@ def hcformer_small(pretrained=False, **kwargs):
     windows_h = [4, 4, 1, 1]
     
     feats_size = [56, 28, 14, 7]
-    hyperbolic = [True, True, True, True]
     global_compute = [True, True, True, False]
     model = HCFormer(
         layers, embed_dims=embed_dims, norm_layer=norm_layer,
@@ -745,10 +673,10 @@ def hcformer_small(pretrained=False, **kwargs):
         down_patch_size=down_patch_size, down_pad=down_pad,
         proposal_w=proposal_w, proposal_h=proposal_h, fold_w=fold_w, fold_h=fold_h,
         windows_w=windows_w, windows_h=windows_h, feats_size=feats_size,
-        heads=heads, head_dim=head_dim, hyperbolic=hyperbolic, 
+        heads=heads, head_dim=head_dim,
         global_compute=global_compute,
         **kwargs)
-    model.default_cfg = default_cfgs['model_small']
+    model.default_cfg = default_cfg
     return model
 
 
@@ -759,10 +687,6 @@ def hcformer_medium(pretrained=False, **kwargs):
     embed_dims = [64, 128, 320, 512]
     mlp_ratios = [8, 8, 4, 4]
     downsamples = [True, True, True, True]
-    # proposal_w = [2, 2, 2, 2]
-    # proposal_h = [2, 2, 2, 2]
-    # fold_w = [8, 4, 2, 1]
-    # fold_h = [8, 4, 2, 1]
     proposal_w = [4, 2, 7, 4]
     proposal_h = [4, 2, 7, 4]
     fold_w = [7, 7, 1, 1]
@@ -772,7 +696,6 @@ def hcformer_medium(pretrained=False, **kwargs):
     
     feats_size = [56, 28, 14, 7]
     
-    hyperbolic = [True, True, True, True]
     global_compute = [True, True, True, False]
     
     heads = [6, 6, 12, 12]
@@ -786,10 +709,10 @@ def hcformer_medium(pretrained=False, **kwargs):
         down_patch_size=down_patch_size, down_pad=down_pad,
         proposal_w=proposal_w, proposal_h=proposal_h, fold_w=fold_w, fold_h=fold_h,
         windows_w=windows_w, windows_h=windows_h, feats_size=feats_size,
-        heads=heads, head_dim=head_dim, hyperbolic=hyperbolic, 
+        heads=heads, head_dim=head_dim,
         global_compute=global_compute,
         **kwargs)
-    model.default_cfg = default_cfgs['model_small']
+    model.default_cfg = default_cfg
     return model
 
 
@@ -812,7 +735,6 @@ if has_mmseg or has_mmdet:
                 feats_size = [56, 28, 14, 7]
                 heads = [4, 4, 8, 8]  # 2 4 8 16
                 head_dim = [24, 24, 24, 24]  
-                hyperbolic = [True, True, True, True]
                 global_compute = [True, True, True, False]
 
                 down_patch_size=3
@@ -823,7 +745,7 @@ if has_mmseg or has_mmdet:
                     down_patch_size = down_patch_size, down_pad=down_pad,
                     proposal_w=proposal_w, proposal_h=proposal_h, fold_w=fold_w, fold_h=fold_h,
                     windows_w=windows_w, windows_h=windows_h, feats_size=feats_size,
-                    heads=heads, head_dim=head_dim, hyperbolic=hyperbolic, global_compute=global_compute,
+                    heads=heads, head_dim=head_dim, global_compute=global_compute,
                     fork_feat=True,
                     **kwargs)
 
@@ -901,4 +823,3 @@ if has_mmseg or has_mmdet:
                 fork_feat=True,
                 **kwargs,
             )
-

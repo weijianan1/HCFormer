@@ -87,8 +87,8 @@ parser.add_argument('--class-map', default='', type=str, metavar='FILENAME',
                     help='path to class to idx mapping file (default: "")')
 
 # Model parameters
-parser.add_argument('--model', default='resnet50', type=str, metavar='MODEL',
-                    help='Name of model to train (default: "resnet50"')
+parser.add_argument('--model', default='hcformer_tiny', type=str, metavar='MODEL',
+                    help='Name of model to train (default: "hcformer_tiny")')
 parser.add_argument('--pretrained', action='store_true', default=False,
                     help='Start with pretrained version of specified network (if avail)')
 parser.add_argument('--initial-checkpoint', default='', type=str, metavar='PATH',
@@ -301,8 +301,6 @@ parser.add_argument('--torchscript', dest='torchscript', action='store_true',
                     help='convert model torchscript for inference')
 parser.add_argument('--log-wandb', action='store_true', default=False,
                     help='log training and validation metrics to wandb')
-parser.add_argument('--git-id', default='None', type=str, metavar='GITHUB_ID',
-                    help='Save the github ID')
 
 
 def get_git_commit_id():
@@ -330,26 +328,6 @@ def _parse_args():
     # Cache the args as a text string to save them in the output dir later
     args_text = yaml.safe_dump(args.__dict__, default_flow_style=False)
     return args, args_text
-
-def calculate_model_flops(model, input_size, batch_size=1):
-    try:
-        from thop import profile
-    except ImportError as exc:
-        raise RuntimeError('Please install thop to calculate FLOPs: pip install thop') from exc
-
-    was_training = model.training
-    model.eval()
-
-    device = next(model.parameters()).device
-    dummy_input = torch.randn((batch_size, *input_size), device=device)
-
-    with torch.no_grad():
-        flops, params = profile(model, inputs=(dummy_input,), verbose=False)
-
-    if was_training:
-        model.train()
-
-    return flops, params
 
 def main():
     setup_default_logging()
@@ -421,26 +399,7 @@ def main():
         _logger.info(
             f'Model {safe_model_name(args.model)} created, param count:{sum([m.numel() for m in model.parameters()])}')
 
-    #     total_params = sum(p.numel()for p in model.parameters() if p.requires_grad)
-    #     print(f'Model Parameters: {total_params / 1e6:.2f} M')
-    #     print(sum([m.numel() for m in model.parameters()])/1024/1024)
-    # exit()
-
     data_config = resolve_data_config(vars(args), model=model, verbose=args.local_rank == 0)
-
-    # # if args.calc_flops and args.local_rank == 0:
-    # if args.local_rank == 0:
-    #     # try:
-    #     flops_batch_size = 1
-    #     flops, thop_params = calculate_model_flops(model, data_config['input_size'], flops_batch_size)
-    #     flops_per_image = flops / flops_batch_size
-    #     _logger.info(
-    #         f'Model FLOPs: {flops_per_image / 1e9:.3f} GFLOPs '
-    #         f'(input size: {data_config["input_size"]}, batch size: {flops_batch_size}); '
-    #         f'THOP params: {thop_params / 1e6:.3f} M')
-    #     # except Exception as exc:
-    #     #     _logger.warning(f'Failed to calculate model FLOPs: {exc}')
-    # exit()
 
     # setup augmentation batch splits for contrastive loss or split bn
     num_aug_splits = 0
@@ -538,7 +497,7 @@ def main():
         lr_scheduler.step(start_epoch)
 
     if args.local_rank == 0:
-        _logger.info('Github ID: {}'.format(get_git_commit_id()))
+        _logger.info('Git commit: {}'.format(get_git_commit_id()))
         _logger.info('Scheduled epochs: {}'.format(num_epochs))
 
     # create the train and eval datasets
@@ -553,9 +512,6 @@ def main():
         class_map=args.class_map,
         download=args.dataset_download,
         batch_size=args.batch_size)
-
-    # print('dataset_train:', len(dataset_train), len(dataset_eval), args.batch_size)
-    # exit()
 
     # setup mixup / cutmix
     collate_fn = None

@@ -1,7 +1,5 @@
-import random
 import warnings
 
-import numpy as np
 import torch
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import (HOOKS, DistSamplerSeedHook, EpochBasedRunner,
@@ -13,29 +11,6 @@ from mmdet.core import DistEvalHook, EvalHook
 from mmdet.datasets import (build_dataloader, build_dataset,
                             replace_ImageToTensor)
 from mmdet.utils import get_root_logger
-try:
-    import apex
-except:
-    print('apex is not installed')
-
-
-def set_random_seed(seed, deterministic=False):
-    """Set random seed.
-
-    Args:
-        seed (int): Seed to be used.
-        deterministic (bool): Whether to set the deterministic option for
-            CUDNN backend, i.e., set `torch.backends.cudnn.deterministic`
-            to True and `torch.backends.cudnn.benchmark` to False.
-            Default: False.
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    if deterministic:
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
 
 
 def train_detector(model,
@@ -76,15 +51,6 @@ def train_detector(model,
 
     # build optimizer
     optimizer = build_optimizer(model, cfg.optimizer)
-
-    # use apex fp16 optimizer
-    if cfg.optimizer_config.get("type", None) and cfg.optimizer_config["type"] == "DistOptimizerHook":
-        if cfg.optimizer_config.get("use_fp16", False):
-            model, optimizer = apex.amp.initialize(
-                model.cuda(), optimizer, opt_level="O1")
-            for m in model.modules():
-                if hasattr(m, "fp16_enabled"):
-                    m.fp16_enabled = True
 
     # put model on gpus
     if distributed:

@@ -1,14 +1,12 @@
 _base_ = [
-    '../_base_/models/fpn_r50.py',
+    '../_base_/models/semantic_fpn.py',
     '../_base_/datasets/ade20k.py',
     '../_base_/default_runtime.py'
 ]
 # model settings
 model = dict(
     type='EncoderDecoder',
-    pretrained=None,
     backbone=dict(
-        _delete_=True,
         type='HCFormerTinyBackbone',
         init_cfg=dict(
             type='Pretrained',
