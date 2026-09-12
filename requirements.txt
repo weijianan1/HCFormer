@@ -13,10 +13,6 @@ Pillow==11.1.0
 PyYAML==6.0.2
 tqdm==4.65.2
 
-# Clustering visualization
-matplotlib==3.9.4
-scikit-learn==1.6.1
-
 # Detection and semantic segmentation
 mmcv-full==1.6.0
 mmdet==2.24.0

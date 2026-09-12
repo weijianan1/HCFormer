@@ -55,7 +55,6 @@ HCFormer/
 ├── train.py                   # ImageNet training
 ├── validate.py                # ImageNet evaluation
 ├── distributed_train.sh       # Distributed ImageNet training example
-├── cluster_visualize.py       # Clustering visualization and analysis
 └── requirements.txt
 ```
 
@@ -224,35 +223,6 @@ bash detection/dist_test.sh \
     detection/configs/mask_rcnn_hcformer_tiny_fpn_1x_coco.py \
     /path/to/checkpoint.pth 4 \
     --eval bbox segm
-```
-
-## Clustering visualization
-
-`cluster_visualize.py` can inspect local Euclidean clustering, window-level hyperbolic clustering, and cross-stage cluster aggregation.
-
-```bash
-python cluster_visualize.py \
-    --mode visualize \
-    --image /path/to/image.jpg \
-    --model hcformer_tiny \
-    --checkpoint /path/to/checkpoint.pth.tar \
-    --stage 0 \
-    --block 0 \
-    --head 0 \
-    --branch global-hyperbolic \
-    --output-dir output/visualization
-```
-
-Cross-stage aggregation with optional K-means merging:
-
-```bash
-python cluster_visualize.py \
-    --mode fec \
-    --image /path/to/image.jpg \
-    --model hcformer_tiny \
-    --checkpoint /path/to/checkpoint.pth.tar \
-    --num-clusters 4 \
-    --output-dir output/visualization
 ```
 
 ## Citation

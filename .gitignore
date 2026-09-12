@@ -19,7 +19,6 @@ outputs/
 work_dirs/
 logs/
 uploads/
-images/cluster_vis/
 
 # Model artifacts
 pretrained/
